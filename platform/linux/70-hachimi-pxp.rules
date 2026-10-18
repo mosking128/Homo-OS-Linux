@@ -1,0 +1,2 @@
+# The desktop runs as debian, with supplementary group video.
+SUBSYSTEM=="misc", KERNEL=="pxp_device", GROUP="video", MODE="0660"

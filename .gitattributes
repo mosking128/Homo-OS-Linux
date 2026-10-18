@@ -1,0 +1,15 @@
+* text=auto eol=lf
+*.c text eol=lf
+*.h text eol=lf
+*.py text eol=lf
+*.sh text eol=lf
+*.cmake text eol=lf
+CMakeLists.txt text eol=lf
+Makefile text eol=lf
+*.md text eol=lf
+*.png binary
+*.ttf binary
+*.rgb565 binary
+platform/linux/hachimi-network text eol=lf
+platform/linux/hachimi-time text eol=lf
+platform/linux/hachimi-led text eol=lf

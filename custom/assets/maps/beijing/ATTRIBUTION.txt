@@ -1,0 +1,4 @@
+© OpenStreetMap contributors · ODbL 1.0
+https://www.openstreetmap.org/copyright
+Data: Open Database License 1.0. Filtered geometry extract: source.osm.json.
+Basemap rendering: Hachimi, generated locally from OSM geometry, not Apple map tiles.

@@ -1,0 +1,23 @@
+[Unit]
+Description=Hachimi LVGL desktop
+After=local-fs.target systemd-user-sessions.service systemd-backlight@backlight:backlight.service
+Wants=systemd-backlight@backlight:backlight.service
+Conflicts=tablet-home.service lvgl.service ebf-qtdemo.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+SupplementaryGroups=input video gpio
+WorkingDirectory=/home/debian/hachimi-desktop
+Environment=HOME=/home/debian
+Environment=USER=debian
+Environment=HACHIMI_FBDEV=/dev/fb0
+Environment=HACHIMI_EVDEV=/dev/input/event2
+ExecStart=/home/debian/hachimi-desktop/hachimi_desktop
+Restart=on-failure
+RestartSec=2
+KillMode=control-group
+
+[Install]
+WantedBy=multi-user.target

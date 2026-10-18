@@ -1,0 +1,230 @@
+#!/usr/bin/python3
+"""Privileged, fixed-operation network adapter for the Hachimi settings UI.
+
+Requests use stdin; Wi-Fi passwords never appear in process arguments or logs.
+The desktop invokes this root-owned file through a narrowly scoped sudo rule.
+"""
+import glob
+import ipaddress
+import os
+import re
+import shutil
+import signal
+import subprocess
+import sys
+import time
+
+os.environ['PATH'] = '/usr/sbin:/usr/bin:/sbin:/bin'
+
+
+def run(args, timeout=8, check=True):
+    result = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            timeout=timeout, universal_newlines=True)
+    if check and result.returncode:
+        raise RuntimeError('系统网络命令执行失败，请检查设备网络服务')
+    return result.stdout.rstrip('\r\n')
+
+
+def wpa(*args):
+    text = run(['wpa_cli', '-i', 'wlan0'] + list(args))
+    if text.startswith('FAIL') or 'Could not connect' in text:
+        raise RuntimeError('无法访问 Wi-Fi 服务，请检查 wpa_supplicant')
+    return text
+
+
+def unescape(text):
+    data = bytearray()
+    i = 0
+    while i < len(text):
+        if text[i:i+2] == '\\x' and re.match(r'^[0-9a-fA-F]{2}$', text[i+2:i+4]):
+            data.append(int(text[i+2:i+4], 16))
+            i += 4
+        elif text[i:i+1] == '\\' and i + 1 < len(text) and text[i+1] in '\\"nrt':
+            data.extend({'\\': b'\\', '"': b'"', 'n': b'\n', 'r': b'\r', 't': b'\t'}[text[i+1]])
+            i += 2
+        else:
+            data.extend(text[i].encode('utf-8'))
+            i += 1
+    return data.decode('utf-8', errors='replace')
+
+
+def hx(value):
+    return str(value).encode('utf-8').hex()
+
+
+def emit(*values):
+    print('\t'.join(str(v) for v in values))
+
+
+def status():
+    present = os.path.exists('/sys/class/net/wlan0')
+    active = run(['systemctl', 'is-active', 'autowifi'], check=False) == 'active'
+    fields = {}
+    if present and active:
+        try:
+            fields = dict(line.split('=', 1) for line in wpa('status').splitlines() if '=' in line)
+        except RuntimeError:
+            pass
+    emit('WIFI', int(present), int(active), hx(unescape(fields.get('ssid', ''))),
+         fields.get('ip_address', '-'), fields.get('wpa_state', 'DISCONNECTED'),
+         fields.get('address', '-'))
+    for path in sorted(glob.glob('/sys/class/net/eth*')):
+        iface = os.path.basename(path)
+        try:
+            carrier = open(path + '/carrier').read().strip() == '1'
+        except OSError:
+            carrier = False
+        address = run(['ip', '-4', '-o', 'addr', 'show', 'dev', iface])
+        match = re.search(r'inet (\S+)', address)
+        mac = open(path + '/address').read().strip()
+        try:
+            enabled = bool(int(open(path + '/flags').read().strip(), 16) & 1)
+        except (OSError, ValueError):
+            enabled = carrier
+        emit('ETH', iface, int(carrier), match.group(1) if match else '-', mac, int(enabled))
+    route = run(['ip', '-4', 'route', 'show', 'default'])
+    emit('ROUTE', hx(route or '未设置默认网关'))
+    dns = []
+    try:
+        for line in open('/etc/resolv.conf'):
+            if line.startswith('nameserver '):
+                dns.append(str(ipaddress.ip_address(line.split()[1])))
+    except (OSError, ValueError):
+        pass
+    emit('DNS', hx(' / '.join(dns) or '未设置'))
+    bluetooth = bool(glob.glob('/sys/class/bluetooth/hci*'))
+    emit('BT', int(bluetooth and bool(shutil.which('bluetoothctl'))))
+    emit('HOTSPOT', int(bool(shutil.which('hostapd'))))
+
+
+def decode(value, maximum):
+    raw = bytes.fromhex(value)
+    if len(raw) > maximum or b'\x00' in raw or b'\n' in raw or b'\r' in raw:
+        raise ValueError('invalid field')
+    return raw.decode('utf-8')
+
+
+def connect(ssid, password, security):
+    if not ssid or security not in ('OPEN', 'PSK'):
+        raise RuntimeError('此网络使用企业认证或不受支持的加密方式')
+    if security == 'PSK' and not (8 <= len(password.encode('utf-8')) <= 63 or
+                                re.match(r'^[0-9a-fA-F]{64}$', password)):
+        raise RuntimeError('Wi-Fi 密码需为 8–63 字节或 64 位十六进制密钥')
+    previous = dict(line.split('=', 1) for line in wpa('status').splitlines() if '=' in line).get('id')
+    enabled = [line.split('\t')[0] for line in wpa('list_networks').splitlines()[1:]
+               if '[DISABLED]' not in line and line.split('\t')[0].isdigit()]
+    network = wpa('add_network')
+    if not network.isdigit():
+        raise RuntimeError('无法创建 Wi-Fi 配置')
+    try:
+        wpa('set_network', network, 'ssid', ssid.encode('utf-8').hex())
+        if security == 'OPEN':
+            wpa('set_network', network, 'key_mgmt', 'NONE')
+        else:
+            import hashlib
+            psk = password if re.match(r'^[0-9a-fA-F]{64}$', password) else hashlib.pbkdf2_hmac(
+                'sha1', password.encode('utf-8'), ssid.encode('utf-8'), 4096, 32).hex()
+            wpa('set_network', network, 'psk', psk)
+        wpa('select_network', network)
+        for _ in range(30):
+            state = wpa('status')
+            if 'wpa_state=COMPLETED' in state and ('id=' + network) in state.splitlines():
+                # Persist only after association succeeds; leave old saved networks available.
+                for saved in enabled:
+                    wpa('enable_network', saved)
+                wpa('save_config')
+                # Renew only wlan0's client, leaving wired/USB DHCP clients untouched.
+                for path in glob.glob('/proc/[0-9]*/cmdline'):
+                    try:
+                        process = open(path, 'rb').read().split(b'\x00')
+                        if (process and os.path.basename(process[0]) == b'udhcpc' and
+                                any(process[i:i+2] == [b'-i', b'wlan0'] for i in range(len(process)-1))):
+                            pid = int(path.split('/')[2])
+                            os.kill(pid, signal.SIGUSR2)
+                            time.sleep(0.2)
+                            os.kill(pid, signal.SIGUSR1)
+                    except (OSError, ValueError):
+                        pass
+                emit('OK', hx('已连接，正在获取网络地址'))
+                return
+            time.sleep(1)
+        raise RuntimeError('连接超时，请检查密码、信号或路由器设置')
+    except Exception:
+        wpa('remove_network', network)
+        if previous and previous.isdigit():
+            wpa('select_network', previous)
+        for saved in enabled:
+            wpa('enable_network', saved)
+        raise
+
+
+def main():
+    request = sys.stdin.readline(4097)
+    if len(request) > 4096:
+        raise ValueError('request too large')
+    args = request.rstrip('\n').split('\t')
+    operation = args[0]
+    if operation == 'status' and len(args) == 1:
+        status()
+    elif operation == 'scan' and len(args) == 1:
+        wpa('scan')
+        time.sleep(3)
+        seen = set()
+        rows = []
+        for line in wpa('scan_results').splitlines()[1:]:
+            fields = line.split('\t', 4)
+            if len(fields) != 5:
+                continue
+            ssid = unescape(fields[4])
+            if not ssid or len(ssid.encode('utf-8')) > 32:
+                continue
+            flags = fields[3]
+            security = 'PSK' if 'PSK' in flags else ('UNSUPPORTED' if any(
+                kind in flags for kind in ('WPA', 'WEP', 'EAP', 'SAE', 'OWE')) else 'OPEN')
+            rows.append((int(fields[2]), ssid, security))
+        for signal, ssid, security in sorted(rows, reverse=True):
+            if ssid not in seen:
+                emit('AP', signal, security, hx(ssid))
+                seen.add(ssid)
+            if len(seen) >= 24:
+                break
+        emit('OK', hx('扫描完成' if seen else '未发现网络，请靠近路由器后重试'))
+    elif operation == 'connect' and len(args) == 4:
+        connect(decode(args[1], 32), decode(args[2], 64), args[3])
+    elif operation == 'reconnect' and len(args) == 1:
+        wpa('reconnect')
+        emit('OK', hx('正在重新连接已保存的网络'))
+    elif operation == 'disconnect' and len(args) == 1:
+        wpa('disconnect')
+        emit('OK', hx('已断开 Wi-Fi'))
+    elif operation in ('wifi-on', 'wifi-off') and len(args) == 1:
+        run(['systemctl', 'start' if operation == 'wifi-on' else 'stop', 'autowifi'])
+        if operation == 'wifi-off':
+            # The legacy autowifi service forks its daemons; terminate its interface only.
+            run(['wpa_cli', '-i', 'wlan0', 'terminate'], check=False)
+            run(['ip', 'link', 'set', 'wlan0', 'down'])
+        emit('OK', hx('Wi-Fi 已开启' if operation == 'wifi-on' else 'Wi-Fi 已关闭'))
+    elif operation in ('ethernet-on', 'ethernet-off') and len(args) == 1:
+        interfaces = sorted(os.path.basename(path) for path in glob.glob('/sys/class/net/eth*')
+                            if re.fullmatch(r'eth[0-9]+', os.path.basename(path)))
+        if not interfaces:
+            raise RuntimeError('未检测到以太网接口')
+        iface = 'eth2' if 'eth2' in interfaces else interfaces[0]
+        run(['ip', 'link', 'set', 'dev', iface, 'up' if operation == 'ethernet-on' else 'down'])
+        emit('OK', hx('以太网已开启' if operation == 'ethernet-on' else '以太网已关闭'))
+    else:
+        raise ValueError('unsupported operation')
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except subprocess.TimeoutExpired:
+        emit('ERROR', hx('网络服务响应超时，请稍后重试'))
+        sys.exit(1)
+    except (ValueError, UnicodeError):
+        emit('ERROR', hx('网络参数无效'))
+        sys.exit(1)
+    except Exception as error:
+        emit('ERROR', hx(str(error)))
+        sys.exit(1)

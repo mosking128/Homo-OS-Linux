@@ -1,0 +1,21 @@
+name: Linux build and smoke tests
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  native:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Audit public source
+        run: python3 tools/audit_public.py
+      - name: Configure
+        run: cmake -S platform/linux -B build/native -DCMAKE_BUILD_TYPE=Release -DHACHIMI_USE_NEON=OFF -DHACHIMI_USE_PXP=OFF
+      - name: Build desktop and tests
+        run: |
+          cmake --build build/native --parallel 4
+          cmake --build build/native --target smoke --parallel 4
+      - name: Run tests
+        run: ctest --test-dir build/native --output-on-failure

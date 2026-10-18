@@ -1,0 +1,56 @@
+{
+  "region": "北京中心城区",
+  "bbox": [
+    39.86,
+    116.34,
+    39.95,
+    116.47
+  ],
+  "center": [
+    39.9042,
+    116.4074
+  ],
+  "zooms": [
+    13,
+    14,
+    15,
+    16
+  ],
+  "levels": [
+    [
+      13,
+      6743,
+      3102,
+      6746,
+      3105
+    ],
+    [
+      14,
+      13486,
+      6205,
+      13492,
+      6210
+    ],
+    [
+      15,
+      26973,
+      12411,
+      26985,
+      12421
+    ],
+    [
+      16,
+      53947,
+      24822,
+      53970,
+      24843
+    ]
+  ],
+  "tile_size": 256,
+  "format": "RGB565 little-endian",
+  "places": 512,
+  "attribution": "© OpenStreetMap contributors · ODbL 1.0",
+  "source": "https://www.openstreetmap.org",
+  "license": "https://opendatacommons.org/licenses/odbl/1-0/",
+  "built_utc": "2026-10-18T02:37:44Z"
+}

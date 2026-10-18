@@ -1,0 +1,44 @@
+#!/bin/sh
+set -eu
+
+LED_ROOT=/sys/class/leds
+
+fail() {
+    printf 'ERROR\t%s\n' "$1"
+    exit 1
+}
+
+write_value() {
+    printf '%s' "$2" > "$1" || fail "cannot write PWM attribute"
+}
+
+led_path() {
+    path=$LED_ROOT/$1
+    [ -w "$path/brightness" ] || fail "RGB PWM LED is unavailable"
+    printf '%s' "$path/brightness"
+}
+
+valid_level() {
+    case $1 in ''|*[!0-9]*) return 1 ;; esac
+    [ "$1" -le 255 ] 2>/dev/null
+}
+
+IFS="$(printf '\t')" read -r operation red green blue extra || fail "missing request"
+case $operation in
+    read)
+        [ -z "${red:-}${green:-}${blue:-}${extra:-}" ] || fail "invalid read request"
+        red=$(cat "$(led_path red)") || fail "cannot read red LED brightness"
+        green=$(cat "$(led_path green)") || fail "cannot read green LED brightness"
+        blue=$(cat "$(led_path blue)") || fail "cannot read blue LED brightness"
+        printf 'RGB\t%s\t%s\t%s\n' "$red" "$green" "$blue"
+        ;;
+    set)
+        valid_level "${red:-}" && valid_level "${green:-}" && valid_level "${blue:-}" || fail "RGB values must be from 0 to 255"
+        [ -z "${extra:-}" ] || fail "too many RGB values"
+        write_value "$(led_path red)" "$red"
+        write_value "$(led_path green)" "$green"
+        write_value "$(led_path blue)" "$blue"
+        printf 'OK\n'
+        ;;
+    *) fail "unknown operation" ;;
+esac

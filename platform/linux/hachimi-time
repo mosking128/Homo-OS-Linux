@@ -1,0 +1,87 @@
+#!/usr/bin/python3
+"""Fixed system-time operations for the Hachimi settings UI."""
+import datetime
+import os
+import re
+import subprocess
+import sys
+
+os.environ['PATH'] = '/usr/sbin:/usr/bin:/sbin:/bin'
+
+
+def run(args, timeout=10):
+    result = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            timeout=timeout, universal_newlines=True)
+    if result.returncode:
+        raise RuntimeError('系统时间服务执行失败')
+    return result.stdout.strip()
+
+
+def emit(*fields):
+    print('\t'.join(str(field) for field in fields))
+
+
+def timezone_names():
+    return run(['timedatectl', 'list-timezones', '--no-pager'], timeout=20).splitlines()
+
+
+def status():
+    fields = {}
+    for line in run(['timedatectl', 'show', '-p', 'Timezone', '-p', 'NTP',
+                     '-p', 'NTPSynchronized']).splitlines():
+        if '=' in line:
+            key, value = line.split('=', 1)
+            fields[key] = value
+    local = datetime.datetime.now()
+    emit('TIME', local.strftime('%Y-%m-%d'), local.strftime('%H:%M:%S'),
+         fields.get('Timezone', 'UTC'),
+         int(fields.get('NTP', 'no').lower() == 'yes'),
+         int(fields.get('NTPSynchronized', 'no').lower() == 'yes'))
+
+
+def set_timezone(zone):
+    if (not zone or len(zone) > 127 or zone.startswith('/') or
+            not re.match(r'^[A-Za-z0-9_+./-]+$', zone) or
+            any(part in ('', '.', '..') for part in zone.split('/'))):
+        raise ValueError('时区名称无效')
+    if zone not in timezone_names():
+        raise ValueError('系统不支持这个时区')
+    run(['timedatectl', 'set-timezone', zone])
+    emit('OK')
+
+
+def main():
+    request = sys.stdin.readline(256)
+    if len(request) >= 256:
+        raise ValueError('请求过长')
+    fields = request.rstrip('\n').split('\t')
+    operation = fields[0]
+    if operation == 'status' and len(fields) == 1:
+        status()
+    elif operation == 'zones' and len(fields) == 1:
+        for zone in timezone_names():
+            emit('ZONE', zone)
+    elif operation == 'ntp-on' and len(fields) == 1:
+        run(['timedatectl', 'set-ntp', 'true'])
+        emit('OK')
+    elif operation == 'ntp-off' and len(fields) == 1:
+        run(['timedatectl', 'set-ntp', 'false'])
+        emit('OK')
+    elif operation == 'zone-set' and len(fields) == 2:
+        set_timezone(fields[1])
+    else:
+        raise ValueError('不支持的操作')
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except subprocess.TimeoutExpired:
+        emit('ERROR', '系统时间服务响应超时')
+        sys.exit(1)
+    except (ValueError, UnicodeError):
+        emit('ERROR', '请求参数无效')
+        sys.exit(1)
+    except Exception:
+        emit('ERROR', '系统时间服务不可用')
+        sys.exit(1)

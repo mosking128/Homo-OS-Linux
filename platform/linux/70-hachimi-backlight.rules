@@ -1,0 +1,1 @@
+SUBSYSTEM=="backlight", KERNEL=="backlight", RUN+="/bin/chgrp gpio /sys%p/brightness", RUN+="/bin/chmod 0664 /sys%p/brightness"

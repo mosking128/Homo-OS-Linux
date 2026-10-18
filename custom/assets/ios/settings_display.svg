@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 36">
+  <rect x="1" y="1" width="34" height="34" rx="9" fill="#ff9f0a"/>
+  <g fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round">
+    <path d="M18 5.1V8.8"/>
+    <path d="M18 5.1V8.8" transform="rotate(45 18 18)"/>
+    <path d="M18 5.1V8.8" transform="rotate(90 18 18)"/>
+    <path d="M18 5.1V8.8" transform="rotate(135 18 18)"/>
+    <path d="M18 5.1V8.8" transform="rotate(180 18 18)"/>
+    <path d="M18 5.1V8.8" transform="rotate(225 18 18)"/>
+    <path d="M18 5.1V8.8" transform="rotate(270 18 18)"/>
+    <path d="M18 5.1V8.8" transform="rotate(315 18 18)"/>
+  </g>
+  <circle cx="18" cy="18" r="5.2" fill="#fff"/>
+</svg>
