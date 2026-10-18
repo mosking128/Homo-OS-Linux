@@ -2,6 +2,8 @@
 
 默认地图覆盖北京中心城区，中心为 WGS84 `39.9042, 116.4074`，范围为北纬 39.86°–39.95°、东经 116.34°–116.47°。这是一份公开示例区域，不代表用户实时位置，也没有接入 GPS。
 
+![北京离线地图与地点搜索](images/beijing-map.png)
+
 包含 z13–z16 四档缩放、729 张 256×256 RGB565 瓦片和 512 个地点。地图底图、道路及索引重新从北京的 OpenStreetMap 数据生成，没有沿用其他城市的瓦片。
 
 支持中文、拼音和首字母搜索、全部/景点/公园筛选、拖动、缩放及选中地点。箭头和 N 回到默认地图中心；距离为地点到地图中心的直线距离，不是导航距离。左侧房子按钮和底部/右侧手势可返回桌面。
@@ -19,5 +21,3 @@ python3 tools/offline_maps/build_beijing.py --font custom/assets/ios/PingFang.tt
 后台线程按需加载本地瓦片；32 槽缓存最多使用 4 MiB 像素缓冲，界面只重绘受影响区域。退出页面暂停 UI 更新；销毁时回收线程与缓存，后台不调用 LVGL。
 
 数据：© OpenStreetMap contributors，采用 [ODbL 1.0](https://opendatacommons.org/licenses/odbl/1-0/)，见 [版权与署名说明](https://www.openstreetmap.org/copyright)。`metadata.json`、`source.osm.json` 和 `ATTRIBUTION.txt` 一并保留。
-
-验证：Linux `maps_smoke` 覆盖数据与索引、拼音搜索、投影转换、异步加载、局部/完整重绘一致性及加载中销毁；`tests/board_evdev_smoke.py --maps-cycles 1` 覆盖实体 framebuffer/evdev 操作。
