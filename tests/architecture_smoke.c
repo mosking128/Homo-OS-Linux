@@ -27,6 +27,20 @@ static bool visible_clock(lv_obj_t * object,const char * clock)
         if(visible_clock(lv_obj_get_child(object,i),clock)) return true;
     return false;
 }
+/* System time can cross a minute before the status bar's next 1 s tick.
+ * Wait for the observable update instead of comparing unsynchronized samples. */
+static void expect_current_clock(lv_obj_t * root)
+{
+    uint32_t start = ticks();
+    do {
+        char text[8];
+        CHECK(hachimi_clock_format(text, sizeof(text), "%H:%M"));
+        if(visible_clock(root, text)) return;
+        pump(50);
+    } while((uint32_t)(ticks() - start) < 1500);
+    CHECK(false);
+}
+
 static unsigned started,stopped;
 static void start_background(void) { started++; }
 static void stop_background(void) { stopped++; }
@@ -70,8 +84,7 @@ int main(void)
         HACHIMI_APP_CLOCK,HACHIMI_APP_CALENDAR,HACHIMI_APP_BOOKS,HACHIMI_APP_LED_CONTROL,HACHIMI_APP_MUSIC};
     for(unsigned i=0;i<sizeof(ids)/sizeof(ids[0]);i++) {
         CHECK(hachimi_desktop_launch(ids[i])); pump(550);
-        CHECK(hachimi_clock_format(clock,sizeof(clock),"%H:%M"));
-        CHECK(visible_clock(lv_screen_active(),clock));
+        expect_current_clock(lv_screen_active());
         CHECK(hachimi_desktop_home()); pump(400);
     }
     hachimi_desktop_destroy(); pump(50); CHECK(timers()==baseline);
